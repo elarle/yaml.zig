@@ -3,4 +3,15 @@ bebe: Hola pepe
 sex:
   a: 33
   b: 32
+  exampleArray: 
+    - name: asd.com
+      value: 12346ab
+    - name: pepe.com
+      value: 1asdba
+  c: 99
+  exampleSingle:
+    - val1: jaja
+      val: 33
+      singao: 2333
+
 

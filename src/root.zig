@@ -13,7 +13,11 @@ const Entry = struct{
 };
 fn parseLine(line: *[]const u8) Entry{
     var i: usize = 0;
+    var name_end_index: usize = 0;
     var result = Entry{};
+
+    if(line.len == 0)
+        return result;
     
     //First count spaces
     while(i < line.len and (line.*[i] == ' ' or line.*[i] == '\t')){
@@ -27,25 +31,46 @@ fn parseLine(line: *[]const u8) Entry{
     }
 
     //From last space to : is the name of the value
-    result.name = line.*[result.spaces..(i)]; //(i-1) para no incluir los :
+    result.name = line.*[result.spaces..(i)];
     
     //Seek for the start of the string
-    while(i < line.len and (line.*[i] == ' ' or line.*[i] == '\t')){
+    while(i < line.len and (line.*[i] == ' ' or line.*[i] == '\t' or line.*[i] == ':')){
         i+=1;
     }
 
-    result.value = line.*[i..line.len];
+    //Remove spaces from the end.
+    name_end_index = i;
+    i = line.len;
+    while(i > name_end_index and (line.*[i-1] == ' ' or line.*[i-1] == '\t' or line.*[i-1] == '\n')){
+        i-=1;
+    }
+
+    result.value = line.*[name_end_index..(i)];
     return result;
 
 }
 
-fn iterateStruct(comptime T: type, name: []const u8, level: usize, it: *StringIterator) void{
+fn iterateStruct(
+    comptime T: type, //This type changes while iterating.
+    result: *T, 
+    name: []const u8, 
+    level: usize, 
+    it: *StringIterator
+) void{
     var _l: ?[]const u8 = "";
     if(level != 0)
         _l = it.next();
 
     if(_l) |l| {
         const entry = parseLine(@constCast(&l));
+
+        if(entry.name != null and !std.mem.eql(u8, name, entry.name.?))
+            std.debug.print("[ ERROR ](FileParser): Error on line: {d}, expected: {s}, found: {?s}\n", .{
+                it.iterated_lines,
+                name,
+                entry.name
+            });
+
         std.debug.print(" - File Name: {?s}\n", .{entry.name});
         std.debug.print(" - File Value: {?s}\n", .{entry.value});
 
@@ -63,15 +88,26 @@ fn iterateStruct(comptime T: type, name: []const u8, level: usize, it: *StringIt
                     break: tselect;
                 }
 
-                inline for(std.meta.fields(T)) |field| {
-                    iterateStruct(field.type, field.name, level+1, it);
-                }
+                inline for(std.meta.fields(T)) |field| 
+                    iterateStruct(field.type, &@field(result, field.name), field.name, level+1, it);
+                
                 break: tselect;
 
             },
-            .int, .float => {
+            .int => {
 
-                std.debug.print("{d} Number: {s}\n", .{level, name});
+                const val = std.fmt.parseInt(T, entry.value.?, 10) catch 0;
+                std.debug.print("{d} Number: {s}, value: {d}\n", .{level, name, val});
+                result.* = val;
+                
+                break: tselect;
+            },
+            .float => {
+                const val = std.fmt.parseFloat(T, entry.value.?) catch 0;
+                std.debug.print("{d} Number: {s}, value: {d}\n", .{level, name, val});
+
+                result.* = val;
+
                 break: tselect;
             },
             .pointer => |field| {
@@ -83,6 +119,7 @@ fn iterateStruct(comptime T: type, name: []const u8, level: usize, it: *StringIt
                         if(int.bits == 8 and field.is_const){
                             //String
                             std.debug.print("{d} String: {s}\n", .{level, name});
+                            result.* = entry.value.?;
                             break: tselect;
                         }
 
@@ -106,10 +143,14 @@ const StringIterator = struct{
     string: *[]const u8,
     separator: u8,
     index: usize = 0,
+    iterated_lines: usize = 0,
     pub fn next(Self: *StringIterator) ?[]const u8{
         var i: usize = Self.index;
         var entered: bool = false;
         var result: ?[]const u8 = null;
+
+
+        Self.iterated_lines += 1;
 
         while(i < Self.string.len){
             entered = true;
@@ -124,6 +165,7 @@ const StringIterator = struct{
             i+=1;
         }
 
+
         //Si el archivo no acaba en nueva línea.
         if(entered)
             return Self.string.*[Self.index..Self.string.len];
@@ -132,21 +174,27 @@ const StringIterator = struct{
     }
 };
 
-pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime template: type) template{
-    var loaded_data = loadFile(allocator, file) catch {
-        return template{};
-    };
-    defer allocator.free(loaded_data);
-    //std.debug.print("Texto: {s}\n", .{loaded_data});
-    std.debug.print("Cooking: \n", .{});
-    
-    var sit = StringIterator{
-        .string = @ptrCast(&loaded_data),
-        .separator = '\n'
-    };
-    iterateStruct(template,"", 0, &(sit));
+pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime template: type, memory: *?[]u8) template{
 
-    return template{};
+    var res = template{};
+
+    if(memory.* == null){
+        memory.* = loadFile(allocator, file) catch {
+            return template{};
+        };
+        //defer allocator.free(loaded_data);
+        //std.debug.print("Texto: {s}\n", .{loaded_data});
+        std.debug.print("Cooking: \n", .{});
+        
+        var sit = StringIterator{
+            .string = @ptrCast(&(memory.*.?)),
+            .separator = '\n'
+        };
+
+        iterateStruct(template,&res, "", 0, &(sit));
+    }
+
+    return res;
 }
 
 const eql = std.testing.expectEqualSlices;
@@ -173,6 +221,7 @@ test "Entry parser test"{
     const line1: []const u8 = "  asdasd: me meotio";
     const line2: []const u8 = "asdasd2: me meotio2\n";
     const line3: []const u8 = "asdasd3:\n";
+    const line4: []const u8 = "asdasd3:         \n";
 
     var entry = parseLine(@constCast(&line1));
     try eql(u8, "asdasd",entry.name.?);
@@ -183,6 +232,10 @@ test "Entry parser test"{
     try eql(u8, "me meotio2",entry.value.?);
 
     entry = parseLine(@constCast(&line3));
+    try eql(u8, "asdasd3",entry.name.?);
+    try eql(u8, "",entry.value.?);
+
+    entry = parseLine(@constCast(&line4));
     try eql(u8, "asdasd3",entry.name.?);
     try eql(u8, "",entry.value.?);
 }
