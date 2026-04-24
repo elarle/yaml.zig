@@ -71,68 +71,83 @@ fn iterateStruct(
                 entry.name
             });
 
-        std.debug.print(" - File Name: {?s}\n", .{entry.name});
-        std.debug.print(" - File Value: {?s}\n", .{entry.value});
+        //std.debug.print(" - File Name: {?s}\n", .{entry.name});
+        //std.debug.print(" - File Value: {?s}\n", .{entry.value});
 
         tselect: switch (@typeInfo(T)) {
-            .@"struct" => {
 
+            .@"struct" => {
                 if(@hasField(T, "len") and @hasField(T, "ptr")){
                     //Its an slice
-                    
                     if(@field(T, "ptr").type == .@"pointer"){
                         //Its an array
                     }
-
-
                     break: tselect;
                 }
-
+                
+                //We iterate over inner fields
                 inline for(std.meta.fields(T)) |field| 
                     iterateStruct(field.type, &@field(result, field.name), field.name, level+1, it);
                 
                 break: tselect;
-
             },
-            .int => {
 
+            .int => {
                 const val = std.fmt.parseInt(T, entry.value.?, 10) catch 0;
-                std.debug.print("{d} Number: {s}, value: {d}\n", .{level, name, val});
+                //std.debug.print("({d}) Number: {s}, value: {d}\n", .{level, name, val});
                 result.* = val;
-                
                 break: tselect;
             },
+
             .float => {
                 const val = std.fmt.parseFloat(T, entry.value.?) catch 0;
-                std.debug.print("{d} Number: {s}, value: {d}\n", .{level, name, val});
-
+                //std.debug.print("({d}) Float: {s}, value: {d}\n", .{level, name, val});
                 result.* = val;
-
                 break: tselect;
             },
+
+            //This handles slices. for exapmle []const u8
             .pointer => |field| {
-                std.debug.print("{s}\n", .{@typeName(T)});
+                //std.debug.print("{s}\n", .{@typeName(T)});
 
                 switch (@typeInfo(field.child)) {
                     .int => |int| {
                         //Check if the ptr is []const u8. We will use it as string.
                         if(int.bits == 8 and field.is_const){
                             //String
-                            std.debug.print("{d} String: {s}\n", .{level, name});
+                            //std.debug.print("({d}) String: {s}\n", .{level, name});
                             result.* = entry.value.?;
                             break: tselect;
                         }
 
                         //Array of something else
-                        std.debug.print("{d} Slice: {s}\n", .{level, name});
+                        std.debug.print("({d}) Slice: {s}\n", .{level, name});
                     }, else => {
                         @compileError("Cannot have pointers inside a yaml file");
                     }
                 }
+
                 break: tselect;
             },
+
+            //Optional parameters (nullable).
+            .optional => |opt| {
+                switch (@typeInfo(opt.child)) {
+                    
+                    //Array of any type
+                    .pointer => |ptr| {
+                        _ = ptr;
+                    }, 
+
+                    else => {
+                        @compileError("Cannot have pointers inside a yaml file");
+                    }
+                }
+                break: tselect;
+
+            },
             else => {
-                std.debug.print("{d} {any}", .{level, T});
+                std.debug.print("({d}) {any}", .{level, T});
                 break: tselect;
             }
         }             
@@ -184,7 +199,7 @@ pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime templat
         };
         //defer allocator.free(loaded_data);
         //std.debug.print("Texto: {s}\n", .{loaded_data});
-        std.debug.print("Cooking: \n", .{});
+        std.debug.print("[ INFO ](YamlLoader): Processing file.\n", .{});
         
         var sit = StringIterator{
             .string = @ptrCast(&(memory.*.?)),

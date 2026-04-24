@@ -7,6 +7,16 @@ const template = struct{
     sex: struct {
         a: u32 = 0,
         b: u32 = 0,
+        c: u8 = 0,
+    } = .{}
+};
+
+const array_template = struct{
+    data: u32 = 0,
+    bebe: []const u8 = "not_loaded",
+    sex: struct {
+        a: u32 = 0,
+        b: u32 = 0,
         exampleArray: ?[]struct{
             name: []const u8, 
             value: []const u8
@@ -34,7 +44,7 @@ test "Load the config" {
 
     try testing.expectEqual(1, settings.data);
     try testing.expectEqualStrings("Hola pepe", settings.bebe);
-    //try testing.expectEqualDeep(@TypeOf(settings.sex){.a = 33, .b = 32}, settings.sex);
+    try testing.expectEqualDeep(@TypeOf(settings.sex){.a = 33, .b = 32, .c=99}, settings.sex);
 
-    std.debug.print("{}\n", .{settings});
+    //std.debug.print("{}\n", .{settings});
 }
