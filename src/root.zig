@@ -50,19 +50,64 @@ fn parseLine(line: *[]const u8) Entry{
 
 }
 
+pub const MemoryPair = struct{
+    data: *std.ArrayList(*void),
+    type_size: usize
+};
+pub const Memory = struct{
+    data: std.ArrayList(MemoryPair) = .{},
+    text: ?[]const u8 = null,
+    allocator: std.mem.Allocator,
+    pub fn free(self: *Memory) void{
+        if(self.text) |txt|
+            self.allocator.free(txt);
+        for(self.data.items) |pair|{
+            _ = pair;
+            //TODO: Make memory usefull
+            //pair.data.clearAndFree(self.allocator);
+        }
+        self.data.clearAndFree(self.allocator);
+    }
+};
+
+pub const FieldType = enum{
+    REGULAR,
+    ARRAY_ELEMENT_START
+};
+
 fn iterateStruct(
     comptime T: type, //This type changes while iterating.
     result: *T, 
     name: []const u8, 
     level: usize, 
-    it: *StringIterator
+    it: *StringIterator,
+    allocator: std.mem.Allocator,
+    ft: FieldType,
+    memory: *Memory,
 ) void{
     var _l: ?[]const u8 = "";
     if(level != 0)
         _l = it.next();
 
     if(_l) |l| {
-        const entry = parseLine(@constCast(&l));
+        var entry = parseLine(@constCast(&l));
+
+        if(ft == .ARRAY_ELEMENT_START){
+            var i: usize = 0;
+            var found: bool = false;
+
+            while((!found) and i < l.len){
+                if(l[i] == '-')
+                    found = true;
+                i+=1;
+            }
+
+            while(i < l.len and (l[i] == ' ' or l[i] == '\t')){
+                std.debug.print("{c}\n", .{l[i]});
+                i+=1;
+            }
+            entry = parseLine(@constCast(&l[i..l.len]));
+        }
 
         if(entry.name != null and !std.mem.eql(u8, name, entry.name.?))
             std.debug.print("[ ERROR ](FileParser): Error on line: {d}, expected: {s}, found: {?s}\n", .{
@@ -77,7 +122,7 @@ fn iterateStruct(
         tselect: switch (@typeInfo(T)) {
 
             .@"struct" => {
-                if(@hasField(T, "len") and @hasField(T, "ptr")){
+                if(@hasField(T, "len")){
                     //Its an slice
                     if(@field(T, "ptr").type == .@"pointer"){
                         //Its an array
@@ -86,9 +131,18 @@ fn iterateStruct(
                 }
                 
                 //We iterate over inner fields
-                inline for(std.meta.fields(T)) |field| 
-                    iterateStruct(field.type, &@field(result, field.name), field.name, level+1, it);
-                
+                inline for(std.meta.fields(T)) |field| {
+                    iterateStruct(
+                        field.type, 
+                        &@field(result, field.name), 
+                        field.name, 
+                        level+1, 
+                        it,
+                        allocator,
+                        .REGULAR,
+                        memory
+                    );
+                }
                 break: tselect;
             },
 
@@ -115,13 +169,13 @@ fn iterateStruct(
                         //Check if the ptr is []const u8. We will use it as string.
                         if(int.bits == 8 and field.is_const){
                             //String
-                            //std.debug.print("({d}) String: {s}\n", .{level, name});
+                            //std.debug.print("({d}) String: {s}\n", .{level, l});
                             result.* = entry.value.?;
                             break: tselect;
                         }
 
                         //Array of something else
-                        std.debug.print("({d}) Slice: {s}\n", .{level, name});
+                        //std.debug.print("({d}) Slice: {s}\n", .{level, name});
                     }, else => {
                         @compileError("Cannot have pointers inside a yaml file");
                     }
@@ -136,7 +190,58 @@ fn iterateStruct(
                     
                     //Array of any type
                     .pointer => |ptr| {
-                        _ = ptr;
+                        //std.debug.print("POINTER: {any}, {s}\n", .{ptr.child, l});
+                        var temp: ptr.child = .{};
+                        var exited = false;
+                        var a: ?[]const u8 = null;
+
+                        var elems = std.ArrayList(ptr.child){};
+                        const mp = MemoryPair{
+                            .data = @ptrCast(&elems),
+                            .type_size = @sizeOf(ptr.child)
+                        };
+                        memory.data.append(
+                            allocator,
+                            mp
+                        ) catch {
+                            @panic("No memory available");
+                        };
+
+                        array_it: while(!exited){
+                            a = it.peek();
+                            if(a)|nl|{
+                                //std.debug.print("Checking for: {s}\n", .{nl});
+                                if(!std.mem.containsAtLeast(u8, nl, 1, "-")){
+                                    exited = true;
+                                    break: array_it;
+                                }
+
+                                inline for(std.meta.fields(ptr.child), 0..) |field, i| {
+                                    var t = FieldType.REGULAR;
+                                    if(i == 0)
+                                        t = .ARRAY_ELEMENT_START;
+
+                                    iterateStruct(
+                                        field.type, 
+                                        &@field(temp, field.name), 
+                                        field.name, 
+                                        level+1, 
+                                        it,
+                                        allocator,
+                                        t,
+                                        memory
+                                    );
+                                }
+
+                                elems.append(allocator, temp) catch {
+                                    @panic("No memory left");
+                                };
+
+                                //std.debug.print("Final: {any}\n", .{temp});
+                            }
+
+                        }                       
+                        result.* = elems.items;
                     }, 
 
                     else => {
@@ -147,7 +252,7 @@ fn iterateStruct(
 
             },
             else => {
-                std.debug.print("({d}) {any}", .{level, T});
+                //std.debug.print("({d}) {any}", .{level, T});
                 break: tselect;
             }
         }             
@@ -163,7 +268,6 @@ const StringIterator = struct{
         var i: usize = Self.index;
         var entered: bool = false;
         var result: ?[]const u8 = null;
-
 
         Self.iterated_lines += 1;
 
@@ -187,14 +291,44 @@ const StringIterator = struct{
 
         return null;
     }
+    pub fn peek(Self: *StringIterator) ?[]const u8{
+        var i: usize = Self.index;
+        var entered: bool = false;
+        var result: ?[]const u8 = null;
+
+
+        Self.iterated_lines += 1;
+
+        while(i < Self.string.len){
+            entered = true;
+
+            if(Self.string.*[i] == Self.separator){
+                result = Self.string.*[Self.index..i];
+                //Self.index = i+1;
+                //Se hace return aqui para no ir al caso final
+                return result;
+            }
+
+            i+=1;
+        }
+
+
+        //Si el archivo no acaba en nueva línea.
+        if(entered)
+            return Self.string.*[Self.index..Self.string.len];
+
+        return null;
+    }
+
 };
 
-pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime template: type, memory: *?[]u8) template{
+pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime template: type, memory: *?Memory) template{
 
     var res = template{};
 
     if(memory.* == null){
-        memory.* = loadFile(allocator, file) catch {
+        memory.* = Memory{.allocator = allocator};
+        memory.*.?.text = loadFile(allocator, file) catch {
             return template{};
         };
         //defer allocator.free(loaded_data);
@@ -202,11 +336,20 @@ pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime templat
         std.debug.print("[ INFO ](YamlLoader): Processing file.\n", .{});
         
         var sit = StringIterator{
-            .string = @ptrCast(&(memory.*.?)),
+            .string = @ptrCast(&(memory.*.?.text.?)),
             .separator = '\n'
         };
 
-        iterateStruct(template,&res, "", 0, &(sit));
+        iterateStruct(
+            template,
+            &res, 
+            "", 
+            0, 
+            &(sit), 
+            allocator, 
+            .REGULAR,
+            &(memory.*.?)
+        );
     }
 
     return res;
@@ -214,7 +357,6 @@ pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime templat
 
 const eql = std.testing.expectEqualSlices;
 test "String Iterator test"{
-
 
     //Con intro al final del archio
     var a: []const u8 = "Hola\nPerikillo el de los palotes\n";
