@@ -32,9 +32,19 @@ const template = struct{
     } = .{}
 };
 
+const AddressList = struct{
+    addresses: ?[]Address = null
+};
 pub fn main() !void {
-    const settings = yaml_zig.loadYaml(std.heap.page_allocator, "data.yaml", template, null);
-    std.debug.print("{}\n", .{settings});
+    var mem: ?yaml_zig.Memory = null;
+    const settings = yaml_zig.loadYaml(std.heap.page_allocator, "ips.yaml", AddressList, &mem);
+    defer mem.?.free();
+
+    if(settings.addresses)|addresses|{
+        for(addresses) |add| {
+            std.debug.print("{s}\n * IP: {s}\n\n", .{add.name, add.value});
+        }
+    }
 }
 
 const testing = std.testing;
