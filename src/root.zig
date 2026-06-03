@@ -102,10 +102,9 @@ fn iterateStruct(
                 i+=1;
             }
 
-            while(i < l.len and (l[i] == ' ' or l[i] == '\t')){
-                std.debug.print("{c}\n", .{l[i]});
+            while(i < l.len and (l[i] == ' ' or l[i] == '\t'))
                 i+=1;
-            }
+            
             entry = parseLine(@constCast(&l[i..l.len]));
         }
 
@@ -291,6 +290,8 @@ const StringIterator = struct{
 
         return null;
     }
+
+    //TODO, Si el archivo no acaba en nueva linea esto no acaba
     pub fn peek(Self: *StringIterator) ?[]const u8{
         var i: usize = Self.index;
         var entered: bool = false;
@@ -353,6 +354,38 @@ pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime templat
     }
 
     return res;
+}
+
+//TODO: Make a comptime allocator
+pub fn comptimeYaml(allocator: std.mem.Allocator, file: []const u8, comptime template: type) template{
+    var res = template{};
+    var memory = Memory{.allocator = allocator};
+    if(@inComptime()){
+            memory.text = @embedFile(file);
+            
+            //defer allocator.free(loaded_data);
+            //std.debug.print("Texto: {s}\n", .{loaded_data});
+            @compileLog("[ INFO ](YamlLoader): Processing file.\n");
+            
+            var sit = StringIterator{
+                .string = @ptrCast(&(memory.text.?)),
+                .separator = '\n'
+            };
+
+            iterateStruct(
+                template,
+                &res, 
+                "", 
+                0, 
+                &(sit), 
+                allocator, 
+                .REGULAR,
+                &(memory)
+            );
+
+    }
+    return res;
+
 }
 
 const eql = std.testing.expectEqualSlices;
