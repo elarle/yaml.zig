@@ -1,4 +1,5 @@
 const std = @import("std");
+const CustomAllocator = @import("CustomArenaAllocator.zig").ArenaAllocator;
 
 fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8{
     var file = try std.fs.cwd().openFile(path, .{.mode = .read_only});
@@ -58,15 +59,14 @@ pub const Memory = struct{
     data: std.ArrayList(MemoryPair) = .{},
     text: ?[]const u8 = null,
     allocator: std.mem.Allocator,
+    text_allocator: std.mem.Allocator,
+    arena: CustomAllocator,
     pub fn free(self: *Memory) void{
-        if(self.text) |txt|
-            self.allocator.free(txt);
-        for(self.data.items) |pair|{
-            _ = pair;
-            //TODO: Make memory usefull
-            //pair.data.clearAndFree(self.allocator);
-        }
-        self.data.clearAndFree(self.allocator);
+        if(self.text) |text|
+            self.text_allocator.free(text);
+        
+        _ = self.arena.reset(.free_all);
+        self.arena.deinit();
     }
 };
 
@@ -108,12 +108,13 @@ fn iterateStruct(
             entry = parseLine(@constCast(&l[i..l.len]));
         }
 
-        if(entry.name != null and !std.mem.eql(u8, name, entry.name.?))
-            std.debug.print("[ ERROR ](FileParser): Error on line: {d}, expected: {s}, found: {?s}\n", .{
-                it.iterated_lines,
-                name,
-                entry.name
-            });
+        //TODO: Fix this to print an error if needed.
+        //if(entry.name != null and !std.mem.eql(u8, name, entry.name.?))
+            //std.debug.print("[ ERROR ](FileParser): Error on line: {d}, expected: {s}, found: {?s}\n", .{
+            //    it.iterated_lines,
+            //    name,
+            //    entry.name
+            //});
 
         //std.debug.print(" - File Name: {?s}\n", .{entry.name});
         //std.debug.print(" - File Value: {?s}\n", .{entry.value});
@@ -190,6 +191,28 @@ fn iterateStruct(
                     //Array of any type
                     .pointer => |ptr| {
                         //std.debug.print("POINTER: {any}, {s}\n", .{ptr.child, l});
+                        
+                        //Check for optional string
+                        switch (@typeInfo(ptr.child)){
+                            .int => |int| {
+                                //Check if the ptr is []const u8. We will use it as string.
+                                if(int.bits == 8 and ptr.is_const){
+                                    //Optional string. we just skip the value.
+                                    if(entry.name != null and !std.mem.eql(u8, name, entry.name.?)){
+                                        it.stepBack();
+                                        break: tselect;
+                                    }
+
+                                    //std.debug.print("({d}) String: {s}\n", .{level, l});
+                                    result.* = entry.value.?;
+                                    break: tselect;
+                                }
+                            },
+                            else => {}
+                            //Array of something else
+                            //std.debug.print("({d}) Slice: {s}\n", .{level, name});
+                        }
+
                         var temp: ptr.child = .{};
                         var exited = false;
                         var a: ?[]const u8 = null;
@@ -263,8 +286,12 @@ const StringIterator = struct{
     separator: u8,
     index: usize = 0,
     iterated_lines: usize = 0,
+
+    back_index: usize = 0,
+
     pub fn next(Self: *StringIterator) ?[]const u8{
         var i: usize = Self.index;
+        Self.back_index = i;
         var entered: bool = false;
         var result: ?[]const u8 = null;
 
@@ -321,6 +348,10 @@ const StringIterator = struct{
         return null;
     }
 
+    pub fn stepBack(Self: *StringIterator) void{
+        Self.index = Self.back_index;
+    }
+
 };
 
 pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime template: type, memory: *?Memory) template{
@@ -328,13 +359,18 @@ pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime templat
     var res = template{};
 
     if(memory.* == null){
-        memory.* = Memory{.allocator = allocator};
-        memory.*.?.text = loadFile(allocator, file) catch {
+        memory.* = Memory{
+            .arena = CustomAllocator.init(allocator),
+            .text_allocator = allocator,
+            .allocator = allocator
+        };
+        memory.*.?.allocator = memory.*.?.arena.allocator();
+        memory.*.?.text = loadFile(memory.*.?.text_allocator, file) catch {
             return template{};
         };
         //defer allocator.free(loaded_data);
         //std.debug.print("Texto: {s}\n", .{loaded_data});
-        std.debug.print("[ INFO ](YamlLoader): Processing file.\n", .{});
+        //std.debug.print("[ INFO ](YamlLoader): Processing file.\n", .{});
         
         var sit = StringIterator{
             .string = @ptrCast(&(memory.*.?.text.?)),
@@ -347,7 +383,7 @@ pub fn loadYaml(allocator: std.mem.Allocator, file: []const u8, comptime templat
             "", 
             0, 
             &(sit), 
-            allocator, 
+            memory.*.?.allocator, 
             .REGULAR,
             &(memory.*.?)
         );

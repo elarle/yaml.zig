@@ -13,7 +13,7 @@ const single_template = struct{
 
 const Address = struct{
     name: []const u8 = "", 
-    value: []const u8 = ""
+    value: ?[]const u8 = null
 };
 const Generic= struct{
     val1: []const u8 = "",
@@ -43,7 +43,7 @@ pub fn main() !void {
 
     if(settings.addresses)|addresses|{
         for(addresses) |add| {
-            std.debug.print("{s}\n * IP: {s}\n\n", .{add.name, add.value});
+            std.debug.print("{s}\n * IP: {?s}\n\n", .{add.name, add.value});
         }
     }
 }
@@ -91,7 +91,7 @@ test "Load the array config" {
     };
     defer std.testing.allocator.free(expected_result.sex.exampleArray.?);
     defer std.testing.allocator.free(expected_result.sex.exampleSingle.?);
-    expected_result.sex.exampleArray.?[0] = .{.name = "asd.com", .value="12346ab"};
+    expected_result.sex.exampleArray.?[0] = .{.name = "asd.com", .value=null};
     expected_result.sex.exampleArray.?[1] = .{.name = "pepe.com", .value="1asdba"};
     expected_result.sex.exampleSingle.?[0] = .{.val1 = "jaja", .val = 33, .singao = 2333};
 
