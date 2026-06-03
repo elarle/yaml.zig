@@ -6,7 +6,6 @@ sex:
   c: 99
   exampleArray: 
     - name: asd.com
-      value: 192.168.0.1
     - name: pepe.com
       value: 192.168.0.2
   exampleSingle:
