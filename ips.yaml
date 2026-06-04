@@ -106,11 +106,8 @@ addresses:
 	- name: ipv6.test
 	  value: 2606:4700:4700::1111
 	- name: db.cluster
-	  value: 10.0.0.45
 	- name: cache.local
-	  value: 172.16.0.10
 	- name: monitoring.int
 	  value: 10.10.10.100
 	- name: backup.node
-	  value: 2001:db8::ff00:42:8329
 
