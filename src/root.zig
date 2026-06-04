@@ -90,6 +90,7 @@ fn iterateStruct(
         _l = it.next();
 
     if(_l) |l| {
+        
         var entry = parseLine(@constCast(&l));
 
         if(ft == .ARRAY_ELEMENT_START){
@@ -200,11 +201,13 @@ fn iterateStruct(
                                     //Optional string. we just skip the value.
                                     if(entry.name != null and !std.mem.eql(u8, name, entry.name.?)){
                                         it.stepBack();
+                                        result.* = null;
                                         break: tselect;
                                     }
 
-                                    //std.debug.print("({d}) String: {s}\n", .{level, l});
-                                    result.* = entry.value.?;
+                                    std.debug.print("({d}) String: {s}\n", .{level, l});
+                                    //This may be null
+                                    result.* = entry.value;
                                     break: tselect;
                                 }
                             },
@@ -229,12 +232,13 @@ fn iterateStruct(
                             @panic("No memory available");
                         };
 
-                        array_it: while(!exited){
+                        array_it: while(!exited and !it.isEmpty()){
                             a = it.peek();
                             if(a)|nl|{
-                                //std.debug.print("Checking for: {s}\n", .{nl});
+                                std.debug.print("Checking for: {s}\n", .{nl});
                                 if(!std.mem.containsAtLeast(u8, nl, 1, "-")){
                                     exited = true;
+
                                     break: array_it;
                                 }
 
@@ -254,12 +258,11 @@ fn iterateStruct(
                                         memory
                                     );
                                 }
-
+                                
                                 elems.append(allocator, temp) catch {
                                     @panic("No memory left");
                                 };
 
-                                //std.debug.print("Final: {any}\n", .{temp});
                             }
 
                         }                       
@@ -350,6 +353,10 @@ const StringIterator = struct{
 
     pub fn stepBack(Self: *StringIterator) void{
         Self.index = Self.back_index;
+    }
+
+    pub fn isEmpty(Self: *StringIterator) bool{
+        return Self.index == Self.string.len;
     }
 
 };
