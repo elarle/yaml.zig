@@ -205,7 +205,7 @@ fn iterateStruct(
                                         break: tselect;
                                     }
 
-                                    std.debug.print("({d}) String: {s}\n", .{level, l});
+                                    //std.debug.print("({d}) String: {s}\n", .{level, l});
                                     //This may be null
                                     result.* = entry.value;
                                     break: tselect;
@@ -235,7 +235,7 @@ fn iterateStruct(
                         array_it: while(!exited and !it.isEmpty()){
                             a = it.peek();
                             if(a)|nl|{
-                                std.debug.print("Checking for: {s}\n", .{nl});
+                                //std.debug.print("Checking for: {s}\n", .{nl});
                                 if(!std.mem.containsAtLeast(u8, nl, 1, "-")){
                                     exited = true;
 
