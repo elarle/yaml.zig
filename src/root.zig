@@ -75,6 +75,16 @@ pub const FieldType = enum{
     ARRAY_ELEMENT_START
 };
 
+fn countLeftTabsSpaces(str: []const u8) usize {
+    var i: usize = 0;
+    while(i < str.len){
+        if(str[i] != '\n' and str[i] != '\t')
+            return i;
+        i+=1;
+    }
+    return i;
+}
+
 fn iterateStruct(
     comptime T: type, //This type changes while iterating.
     result: *T, 
@@ -236,9 +246,15 @@ fn iterateStruct(
                             a = it.peek();
                             if(a)|nl|{
                                 //std.debug.print("Checking for: {s}\n", .{nl});
-                                if(!std.mem.containsAtLeast(u8, nl, 1, "-")){
+                                if(nl.len == 0){
+                                    _ = it.next();
+                                    continue;
+                                }
+                                if(
+                                    !std.mem.containsAtLeast(u8, nl, 1, "-") or
+                                    countLeftTabsSpaces(nl) < level
+                                ){
                                     exited = true;
-
                                     break: array_it;
                                 }
 
